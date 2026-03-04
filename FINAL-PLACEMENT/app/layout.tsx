@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Manrope } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
 import { Toaster } from "@/components/ui/sonner";
+import FCMTokenRegistrar from "@/components/FCMTokenRegistrar";
 import "./globals.css";
 
 const inter = Inter({
@@ -32,6 +33,7 @@ export default function RootLayout({
         className={`${inter.variable} ${manrope.variable} font-sans antialiased min-h-screen bg-white selection:bg-primary/20`}
       >
         <SessionProvider>
+          <FCMTokenRegistrar />
           <div className="relative flex min-h-screen flex-col">
             {children}
           </div>

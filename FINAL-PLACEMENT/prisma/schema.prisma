@@ -59,6 +59,8 @@ model User {
   roundAttendances  RoundAttendance[]
   finalSelections   FinalSelected[]
 
+  fcmToken          String?            @map("fcm_token")
+
   @@map("users")
 }
 

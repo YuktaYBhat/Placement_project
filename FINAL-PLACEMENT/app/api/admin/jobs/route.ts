@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma"
 import { NextRequest, NextResponse } from "next/server"
 import { requireAdmin, sanitizeInput, logSecurityEvent } from "@/lib/auth-helpers"
 import { emitNotification } from "@/lib/socket"
+import { sendCustomFCMNotifications } from "@/lib/firebase-admin"
+import { randomUUID } from "crypto"
 
 // Helper to determine tier from salary
 function determineTier(salary: number | null, isDreamOffer: boolean): string {
@@ -43,6 +45,7 @@ async function notifyEligibleStudents(jobId: string, jobTitle: string, companyNa
 
             // Create notifications for all eligible students
             const notificationData = eligibleUsers.map((user: { id: string }) => ({
+                id: randomUUID(),
                 userId: user.id,
                 title: `New Job: ${jobTitle}`,
                 message: `${companyName} is hiring! Check out the new job posting and apply before the deadline.`,
@@ -65,6 +68,66 @@ async function notifyEligibleStudents(jobId: string, jobTitle: string, companyNa
             notificationData.forEach((notification: any) => {
                 emitNotification(notification.userId, notification)
             })
+
+            // Send FCM push notifications (desktop & Android)
+            try {
+                const usersWithTokens = await (prisma.user as any).findMany({
+                    where: {
+                        id: { in: eligibleUsers.map((u: { id: string }) => u.id) },
+                        fcmToken: { not: null }
+                    },
+                    select: { id: true, fcmToken: true }
+                })
+
+                if (usersWithTokens.length > 0) {
+                    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3500'
+
+                    // Create a map of userId -> notificationId for quick lookup
+                    const userNotifMap = new Map(
+                        notificationData.map((n: any) => [n.userId, n.id])
+                    )
+
+                    const fcmMessages = usersWithTokens.map((u: any) => {
+                        const notificationId = userNotifMap.get(u.id)
+                        return {
+                            token: u.fcmToken,
+                            title: `New Job: ${jobTitle}`,
+                            body: `${companyName} is hiring! Check out the new job posting and apply before the deadline.`,
+                            data: { jobId, notificationId },
+                            link: `${appUrl}/notifications/${notificationId}`
+                        }
+                    })
+
+                    const fcmResponse = await sendCustomFCMNotifications(fcmMessages)
+
+                    // Clean up stale tokens
+                    if (fcmResponse && fcmResponse.responses) {
+                        const staleTokens: string[] = []
+                        fcmResponse.responses.forEach((resp: any, idx: number) => {
+                            if (!resp.success) {
+                                const code = resp.error?.code
+                                if (
+                                    code === 'messaging/registration-token-not-registered' ||
+                                    code === 'messaging/invalid-registration-token'
+                                ) {
+                                    staleTokens.push(fcmMessages[idx].token)
+                                }
+                            }
+                        })
+                        if (staleTokens.length > 0) {
+                            await (prisma.user as any).updateMany({
+                                where: { fcmToken: { in: staleTokens } },
+                                data: { fcmToken: null }
+                            })
+                            console.log(`Cleared ${staleTokens.length} stale FCM tokens`)
+                        }
+                    }
+
+                    console.log(`FCM push sent to ${fcmMessages.length} devices for job notification`)
+                }
+            } catch (fcmError) {
+                console.error("Error sending FCM push for job notification:", fcmError)
+            }
         }
 
         return eligibleUsers.length

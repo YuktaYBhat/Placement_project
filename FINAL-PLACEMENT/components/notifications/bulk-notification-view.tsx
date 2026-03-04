@@ -1,7 +1,6 @@
 "use client"
 
-import { useState } from "react"
-import { FileIcon, Loader2 } from "lucide-react"
+import { FileIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -15,31 +14,14 @@ interface BulkNotificationViewProps {
 }
 
 export function BulkNotificationView({ message, data, files }: BulkNotificationViewProps) {
-    const [downloading, setDownloading] = useState<string | null>(null)
     const legacyAttachments = data?.attachments || []
     const normalizedFiles = files?.map(f => ({ url: f.fileUrl, name: f.fileName })) || []
     const attachments = [...legacyAttachments, ...normalizedFiles]
 
-    const handleDownload = async (url: string, filename: string) => {
-        setDownloading(url)
-        try {
-            const response = await fetch(url)
-            const blob = await response.blob()
-            const blobUrl = window.URL.createObjectURL(blob)
-            const link = document.createElement('a')
-            link.href = blobUrl
-            link.download = filename
-            document.body.appendChild(link)
-            link.click()
-            document.body.removeChild(link)
-            window.URL.revokeObjectURL(blobUrl)
-        } catch (error) {
-            console.error('Download failed:', error)
-            // Fallback: Open in new window if fetch fails (e.g. CORS issues)
-            window.open(url, '_blank')
-        } finally {
-            setDownloading(null)
-        }
+    const handleDownload = (url: string, filename: string) => {
+        // Direct download via window.open is more robust for cross-origin R2 URLs
+        // and avoids the "Failed to fetch" CORS errors.
+        window.open(url, '_blank')
     }
 
     return (
@@ -80,18 +62,10 @@ export function BulkNotificationView({ message, data, files }: BulkNotificationV
                                         <Button
                                             variant="outline"
                                             size="sm"
-                                            disabled={downloading === file.url}
                                             className="h-9 px-4 shrink-0 rounded-lg hover:bg-primary hover:text-primary-foreground border-primary/20"
                                             onClick={() => handleDownload(file.url, file.name)}
                                         >
-                                            {downloading === file.url ? (
-                                                <>
-                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                    Downloading...
-                                                </>
-                                            ) : (
-                                                "Download"
-                                            )}
+                                            Download
                                         </Button>
                                     </div>
                                 </CardContent>

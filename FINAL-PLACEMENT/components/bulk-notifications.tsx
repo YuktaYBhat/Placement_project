@@ -21,9 +21,7 @@ import {
   Users,
   Send,
   Filter,
-  UserCheck,
   GraduationCap,
-  Calendar,
   AlertCircle,
   X,
   Plus
@@ -52,10 +50,6 @@ export function BulkNotifications({ stats, adminId }: BulkNotificationsProps) {
   const [message, setMessage] = useState("")
   const [targetGroup, setTargetGroup] = useState("all")
   const [selectedBranches, setSelectedBranches] = useState<string[]>([])
-  const [verifiedOnly, setVerifiedOnly] = useState(false)
-  const [isScheduled, setIsScheduled] = useState(false)
-  const [scheduledDate, setScheduledDate] = useState("")
-  const [scheduledTime, setScheduledTime] = useState("")
   const [attachments, setAttachments] = useState<{ url: string; name: string }[]>([])
   const [isUploading, setIsUploading] = useState(false)
   const [isSending, setIsSending] = useState(false)
@@ -106,7 +100,7 @@ export function BulkNotifications({ stats, adminId }: BulkNotificationsProps) {
     let count = 0
 
     if (targetGroup === "all") {
-      count = verifiedOnly ? stats.verifiedStudents : stats.totalStudents
+      count = stats.totalStudents
     } else if (targetGroup === "verified") {
       count = stats.verifiedStudents
     } else if (targetGroup === "branches" && selectedBranches.length > 0) {
@@ -136,10 +130,6 @@ export function BulkNotifications({ stats, adminId }: BulkNotificationsProps) {
           message,
           targetGroup,
           selectedBranches,
-          verifiedOnly,
-          isScheduled,
-          scheduledDate: isScheduled ? scheduledDate : null,
-          scheduledTime: isScheduled ? scheduledTime : null,
           attachments,
           adminId
         }),
@@ -151,10 +141,6 @@ export function BulkNotifications({ stats, adminId }: BulkNotificationsProps) {
         setMessage("")
         setTargetGroup("all")
         setSelectedBranches([])
-        setVerifiedOnly(false)
-        setIsScheduled(false)
-        setScheduledDate("")
-        setScheduledTime("")
         setAttachments([])
 
         alert("Notification sent successfully!")
@@ -255,44 +241,6 @@ export function BulkNotifications({ stats, adminId }: BulkNotificationsProps) {
             </div>
 
             <Separator />
-
-            {/* Scheduling Options */}
-            <div className="space-y-4">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="scheduled"
-                  checked={isScheduled}
-                  onCheckedChange={(checked) => setIsScheduled(checked as boolean)}
-                />
-                <Label htmlFor="scheduled" className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4" />
-                  Schedule for later
-                </Label>
-              </div>
-
-              {isScheduled && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="date">Date</Label>
-                    <Input
-                      id="date"
-                      type="date"
-                      value={scheduledDate}
-                      onChange={(e) => setScheduledDate(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="time">Time</Label>
-                    <Input
-                      id="time"
-                      type="time"
-                      value={scheduledTime}
-                      onChange={(e) => setScheduledTime(e.target.value)}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
           </CardContent>
         </Card>
 
@@ -312,7 +260,7 @@ export function BulkNotifications({ stats, adminId }: BulkNotificationsProps) {
                 className="gap-2"
               >
                 <Send className="w-4 h-4" />
-                {isSending ? "Sending..." : isScheduled ? "Schedule" : "Send Now"}
+                {isSending ? "Sending..." : "Send Now"}
               </Button>
             </div>
           </CardContent>
@@ -340,7 +288,6 @@ export function BulkNotifications({ stats, adminId }: BulkNotificationsProps) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Students</SelectItem>
-                  <SelectItem value="verified">Verified Students Only</SelectItem>
                   <SelectItem value="branches">Specific Branches</SelectItem>
                 </SelectContent>
               </Select>
@@ -374,19 +321,6 @@ export function BulkNotifications({ stats, adminId }: BulkNotificationsProps) {
               </div>
             )}
 
-            {targetGroup === "all" && (
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="verified-only"
-                  checked={verifiedOnly}
-                  onCheckedChange={(checked) => setVerifiedOnly(checked as boolean)}
-                />
-                <Label htmlFor="verified-only" className="flex items-center gap-2">
-                  <UserCheck className="w-4 h-4" />
-                  Verified profiles only
-                </Label>
-              </div>
-            )}
           </CardContent>
         </Card>
 

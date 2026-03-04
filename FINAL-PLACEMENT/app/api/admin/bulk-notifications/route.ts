@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { requireAdmin, sanitizeInput, logSecurityEvent } from "@/lib/auth-helpers"
 import { emitNotification } from "@/lib/socket"
 import { randomUUID } from "crypto"
+import { sendCustomFCMNotifications } from "@/lib/firebase-admin"
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,10 +23,6 @@ export async function POST(request: NextRequest) {
       message,
       targetGroup,
       selectedBranches,
-      verifiedOnly,
-      isScheduled,
-      scheduledDate,
-      scheduledTime,
       attachments,
       adminId
     } = await request.json()
@@ -65,7 +62,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate targetGroup
-    const validTargetGroups = ['all', 'verified', 'branches']
+    const validTargetGroups = ['all', 'branches']
     if (!validTargetGroups.includes(targetGroup)) {
       return NextResponse.json(
         { error: "Invalid target group" },
@@ -76,11 +73,7 @@ export async function POST(request: NextRequest) {
     // Build the user filter based on targeting options
     let userFilter: any = { role: 'STUDENT' }
 
-    if (targetGroup === 'verified' || (targetGroup === 'all' && verifiedOnly)) {
-      userFilter.profile = {
-        kycStatus: 'VERIFIED'
-      }
-    } else if (targetGroup === 'branches' && Array.isArray(selectedBranches) && selectedBranches.length > 0) {
+    if (targetGroup === 'branches' && Array.isArray(selectedBranches) && selectedBranches.length > 0) {
       userFilter.profile = {
         branch: { in: selectedBranches }
       }
@@ -101,7 +94,6 @@ export async function POST(request: NextRequest) {
       adminId: session.user.id,
       recipientCount: targetUsers.length,
       targetGroup,
-      isScheduled,
       timestamp: new Date().toISOString()
     })
 
@@ -116,12 +108,11 @@ export async function POST(request: NextRequest) {
           message: sanitizedMessage,
           type: 'SYSTEM' as const,
           isRead: false,
-          scheduledAt: isScheduled ? new Date(`${scheduledDate}T${scheduledTime}`) : null,
+          scheduledAt: null,
           data: {
             sentBy: adminId,
             targetGroup,
-            isScheduled,
-            scheduledFor: isScheduled ? `${scheduledDate}T${scheduledTime}` : null,
+            isEmitted: true,
           }
         }
       })
@@ -149,14 +140,73 @@ export async function POST(request: NextRequest) {
         })
       ])
 
-      // Emit real-time notifications for non-scheduled messages
-      if (!isScheduled) {
-        notificationsData.forEach((notification: any) => {
-          emitNotification(notification.userId, {
-            ...notification,
-            createdAt: new Date().toISOString()
-          })
+      // Emit real-time notifications immediately
+      notificationsData.forEach((notification: any) => {
+        emitNotification(notification.userId, {
+          ...notification,
+          createdAt: new Date().toISOString()
         })
+      })
+
+      // Send FCM push notifications (desktop & Android)
+      try {
+        const usersWithTokens = await (prisma.user as any).findMany({
+          where: {
+            id: { in: targetUsers.map((u: { id: string }) => u.id) },
+            fcmToken: { not: null }
+          },
+          select: { id: true, fcmToken: true }
+        })
+
+        if (usersWithTokens.length > 0) {
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3500'
+
+          // Create a map of userId -> notificationId for quick lookup
+          const userNotifMap = new Map(
+            notificationsData.map((n: any) => [n.userId, n.id])
+          )
+
+          const fcmMessages = usersWithTokens.map((u: any) => {
+            const notificationId = userNotifMap.get(u.id)
+            return {
+              token: u.fcmToken,
+              title: sanitizedSubject,
+              body: sanitizedMessage,
+              data: { targetGroup, notificationId },
+              link: `${appUrl}/notifications/${notificationId}`
+            }
+          })
+
+          const fcmResponse = await sendCustomFCMNotifications(fcmMessages)
+
+          // Clean up stale tokens
+          if (fcmResponse && fcmResponse.responses) {
+            const staleTokens: string[] = []
+            fcmResponse.responses.forEach((resp: any, idx: number) => {
+              if (!resp.success) {
+                const code = resp.error?.code
+                if (
+                  code === 'messaging/registration-token-not-registered' ||
+                  code === 'messaging/invalid-registration-token'
+                ) {
+                  staleTokens.push(fcmMessages[idx].token)
+                }
+              }
+            })
+            if (staleTokens.length > 0) {
+              await (prisma.user as any).updateMany({
+                where: { fcmToken: { in: staleTokens } },
+                data: { fcmToken: null }
+              })
+              console.log(`Cleared ${staleTokens.length} stale FCM tokens`)
+            }
+          }
+
+          console.log(`FCM push sent to ${fcmMessages.length} devices for bulk notification`)
+        }
+      } catch (fcmError) {
+        // FCM errors should not fail the whole request
+        console.error("Error sending FCM push for bulk notification:", fcmError)
       }
 
       console.log(`Bulk notification sent to ${targetUsers.length} users`)
